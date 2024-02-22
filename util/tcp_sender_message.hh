@@ -3,6 +3,7 @@
 #include "wrapping_integers.hh"
 
 #include <string>
+#include <sstream>
 
 /*
  * The TCPSenderMessage structure contains the information sent from a TCP sender to its receiver.
@@ -34,4 +35,20 @@ struct TCPSenderMessage
 
   // How many sequence numbers does this segment use?
   size_t sequence_length() const { return SYN + payload.size() + FIN; }
+
+  uint64_t as {};
+  uint64_t as_end{};
+
+  std::string DebugString() const {
+    std::ostringstream oss;
+    oss << "seqno: " << seqno.raw_value() << " SYN: " << SYN << " FIN: " << FIN <<
+      " RST: " << RST << " payload: " << payload.size() << " as:" << as << " as_end: " << as_end;
+    return oss.str();
+  }
+
+  friend bool operator<(const TCPSenderMessage &l, 
+    const TCPSenderMessage& r) {
+    return l.as_end > r.as_end || (l.as_end == r.as_end && l.as > r.as);
+  }
 };
+

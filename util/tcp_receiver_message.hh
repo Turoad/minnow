@@ -3,6 +3,7 @@
 #include "wrapping_integers.hh"
 
 #include <optional>
+#include <sstream>
 
 /*
  * The TCPReceiverMessage structure contains the information sent from a TCP receiver to its sender.
@@ -24,4 +25,18 @@ struct TCPReceiverMessage
   std::optional<Wrap32> ackno {};
   uint16_t window_size {};
   bool RST {};
+
+  uint64_t as = 0;
+
+  std::string DebugString() const {
+    std::ostringstream oss;
+    std::string ackno_str = "None";
+    if (ackno.has_value()) {
+      Wrap32 an = ackno.value();
+      ackno_str = std::to_string(an.raw_value());
+    }
+    oss << "ackno: " << ackno_str << " window_size: " << window_size <<
+      " RST: " << RST;
+    return oss.str();
+  }
 };

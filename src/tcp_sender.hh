@@ -16,7 +16,7 @@ class TCPSender
 public:
   /* Construct TCP sender with given default Retransmission Timeout and possible ISN */
   TCPSender( ByteStream&& input, Wrap32 isn, uint64_t initial_RTO_ms )
-    : input_( std::move( input ) ), isn_( isn ), initial_RTO_ms_( initial_RTO_ms )
+    : input_( std::move( input ) ), isn_( isn ), initial_RTO_ms_( initial_RTO_ms ), RTO_ms_(initial_RTO_ms)
   {}
 
   /* Generate an empty TCPSenderMessage */
@@ -44,8 +44,43 @@ public:
   const Reader& reader() const { return input_.reader(); }
 
 private:
+
+  void check_outstanding();
+
+  void reset() {
+    RTO_ms_ = initial_RTO_ms_;
+    con_retran_ = 0;
+    time_ms_ = 0;
+  }
+
   // Variables initialized in constructor
   ByteStream input_;
   Wrap32 isn_;
   uint64_t initial_RTO_ms_;
+
+  TCPReceiverMessage msg_{};
+  size_t window_size_ = 1;
+  bool zero_ws_ = false;
+
+  uint64_t RTO_ms_ = 0;
+  uint64_t con_retran_ = 0;
+  uint64_t seq_in_flight_ = 0;
+  uint64_t time_ms_ = 0;
+  
+  // Wrap32 csn_{0};
+  uint64_t last_as_ = 0;
+
+  bool syn_send_ = false;
+  bool fin_send_ = false;
+
+  void debug_queue() {
+    auto queue = queue_;
+    while (!queue.empty()) {
+      auto top = queue.top();
+      std::cout << "debug: " << top.DebugString() << std::endl;
+      queue.pop();
+    }
+  }
+
+  std::priority_queue<TCPSenderMessage> queue_{};
 };
