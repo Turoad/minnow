@@ -4,6 +4,10 @@
 
 using namespace std;
 
+namespace {
+int DEBUG = 0;
+}
+
 uint64_t TCPSender::sequence_numbers_in_flight() const
 {
   // Your code here.
@@ -25,7 +29,6 @@ void TCPSender::check_outstanding() {
   }
   while (!queue_.empty()) {
     const auto msg = queue_.top();
-    // std::cout << "as_end: " << msg.as_end << " recever as:" << as << std::endl;
     if (msg.as_end <= as) {
       queue_.pop();
       seq_in_flight_ -= msg.sequence_length();
@@ -36,32 +39,17 @@ void TCPSender::check_outstanding() {
 
 void TCPSender::push( const TransmitFunction& transmit )
 {
-  // if (sequence_numbers_in_flight()) {
-  //   check_outstanding();
-  //   return;
-  // }
-  // Your code here.
   check_outstanding();
   while(window_size_ > seq_in_flight_) {
     TCPSenderMessage s_msg = make_empty_message();
     uint64_t as = last_as_;
-    // uint64_t ck = reader().bytes_popped();
-    // if (msg_.ackno) {
-    //   Wrap32 ackno = msg_.ackno.value();
-    //   as = ackno.unwrap(isn_, ck);
-    //   std::cout << "ack absolute no: " << as << std::endl;
-    // }
     if (as == 0) s_msg.SYN = 1;
-
-
     s_msg.seqno = Wrap32::wrap(as, isn_);
     const auto buf = reader().peek();
     uint64_t can_get = std::min(buf.size(), window_size_ - seq_in_flight_);
     can_get = std::min(can_get, (uint64_t)TCPConfig::MAX_PAYLOAD_SIZE);
     s_msg.payload = buf.substr(0, can_get);
-    // if (as > ck) input_.reader().pop(as-1-ck);
     input_.reader().pop(can_get);
-
 
     if (!fin_send_ && input_.writer().is_closed() && can_get + s_msg.SYN < window_size_ - seq_in_flight_ && input_.reader().bytes_buffered() == 0) s_msg.FIN=1;
 
@@ -73,15 +61,13 @@ void TCPSender::push( const TransmitFunction& transmit )
     queue_.push(s_msg);
     
 
-    std::cout << "push: " << s_msg.DebugString() << " seq_in_flight: " << seq_in_flight_  <<" last_as: " << last_as_ << std::endl;
+    if (DEBUG) std::cout << "push: " << s_msg.DebugString() << " seq_in_flight: " << seq_in_flight_  <<" last_as: " << last_as_ << std::endl;
 
     if (s_msg.payload.size() == 0 && syn_send_ && !s_msg.FIN) {
       return;
     }
 
     seq_in_flight_ += s_msg.sequence_length();
-
-    std::cout << "2 push: " << s_msg.DebugString() << std::endl;
 
     if (s_msg.sequence_length() > 0) {
       transmit(s_msg);
@@ -99,14 +85,8 @@ TCPSenderMessage TCPSender::make_empty_message() const
   if (reader().has_error()) {
     s_msg.RST = true;
   }
-  // uint64_t ck = reader().bytes_popped();
-  // if (msg_.ackno) {
-  //   Wrap32 ackno = msg_.ackno.value() + 1;
-  //   as = ackno.unwrap(isn_, ck);
-  // }
-  // if (as == 0) s_msg.SYN = 1;
   s_msg.seqno = Wrap32::wrap(as, isn_); 
-  std::cout << "make_empty_message: " << s_msg.DebugString() << std::endl;
+  if (DEBUG) std::cout << "make_empty_message: " << s_msg.DebugString() << std::endl;
 
   return s_msg;
 }
@@ -114,31 +94,28 @@ TCPSenderMessage TCPSender::make_empty_message() const
 void TCPSender::receive( const TCPReceiverMessage& msg )
 {
   // Your code here.
-  std::cout << "receive0: " << msg.DebugString() << std::endl;
   if (msg.RST) {
     writer().set_error();
   }
+  uint64_t as = 0;
   if (msg.ackno.has_value()) {
     Wrap32 ackno = msg.ackno.value();
     uint64_t ck = reader().bytes_popped();
-    uint64_t as = ackno.unwrap(isn_, ck);
-    std::cout << "check receive: " << as << " " << last_as_ << std::endl;
+     as = ackno.unwrap(isn_, ck);
+    if (DEBUG) std::cout << "check receive: " << as << " " << last_as_ << std::endl;
     if (as > last_as_) {
-      std::cout << "receive unposible ack " << std::endl;
+      if (DEBUG) std::cout << "receive unposible ack " << std::endl;
       return;
     }
 
     if(as < msg_.as) {
-      std::cout << "as < msg_as: " << as << " " << msg_.as << std::endl;
+      if (DEBUG) std::cout << "as < msg_as: " << as << " " << msg_.as << std::endl;
       return ;
     }
-
-    msg_ = msg;
-    msg_.as = as;
-  } else {
-    msg_ = msg;
   } 
-  std::cout << "receive: " << msg.DebugString() << std::endl;
+  msg_ = msg;
+  msg_.as = as;
+  if (DEBUG) std::cout << "receive: " << msg.DebugString() << std::endl;
   window_size_ = std::max(msg.window_size, (uint16_t)1);
   zero_ws_ = msg.window_size > 0 ? false : true;
 }
@@ -146,14 +123,13 @@ void TCPSender::receive( const TCPReceiverMessage& msg )
 void TCPSender::tick( uint64_t ms_since_last_tick, const TransmitFunction& transmit )
 {
   // Your code here.
-
   check_outstanding();
-  std::cout << "ms_since_last_tick: " << ms_since_last_tick << "time_ms_ " << time_ms_ << " ROT_ms_: " << RTO_ms_ << std::endl;
+  if (DEBUG) std::cout << "ms_since_last_tick: " << ms_since_last_tick << "time_ms_ " << time_ms_ << " ROT_ms_: " << RTO_ms_ << std::endl;
   time_ms_ += ms_since_last_tick;
   if (time_ms_ >= RTO_ms_ && queue_.size() > 0) {
     const auto top = queue_.top();
-    std::cout << "tick: " << top.DebugString() << std::endl;
-    debug_queue();
+    if (DEBUG) std::cout << "tick: " << top.DebugString() << std::endl;
+    if (DEBUG) debug_queue();
     transmit(top);
     con_retran_ += 1;
     if (!zero_ws_) RTO_ms_ *= 2;
